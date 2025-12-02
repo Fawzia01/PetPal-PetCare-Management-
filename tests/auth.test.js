@@ -1,5 +1,5 @@
 import request from "supertest";
-import app from "../index.js"; // your main file
+import app from "../src/index.js"; // your main file
 
 describe("User Auth", () => {
   it("signup and login", async () => {
@@ -19,3 +19,4 @@ describe("User Auth", () => {
     console.log(res.body); // See token
   });
 });
+
