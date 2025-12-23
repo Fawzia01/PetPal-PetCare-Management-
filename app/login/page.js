@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation';
 import { PawPrint, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
 
+const API_URL = "http://localhost:3001";
+
 export default function LoginPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
@@ -12,16 +14,47 @@ export default function LoginPage() {
     password: ''
   });
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // Mock login - আসল implementation এ backend API call হবে
-    if (formData.email && formData.password) {
-      localStorage.setItem('petpal_user', JSON.stringify({
-        name: 'Fawzi',
-        email: formData.email,
-        id: '1'
-      }));
-      router.push('/dashboard');
+
+    if (!formData.email || !formData.password) {
+      alert("Please enter email and password");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || "Login failed");
+        return;
+      }
+
+      // Save token and user info
+      localStorage.setItem(
+        'petpal_user',
+        JSON.stringify({
+          email: data.email,
+          token: data.token,
+          user_id: data.user_id
+        })
+      );
+
+
+      alert("Login successful!");
+      router.push("/dashboard"); // redirect after login
+    } catch (err) {
+      console.error("Login error:", err);
+      alert("Server not reachable");
     }
   };
 
@@ -42,9 +75,7 @@ export default function LoginPage() {
           {/* Login Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email Address</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
@@ -59,9 +90,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
@@ -126,20 +155,6 @@ export default function LoginPage() {
           <p className="text-xl text-blue-100">
             Track health, nutrition, and activities all in one place
           </p>
-          <div className="mt-8 flex justify-center gap-4">
-            <div className="text-center">
-              <div className="text-3xl font-bold">50K+</div>
-              <div className="text-sm text-blue-200">Happy Pets</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold">10K+</div>
-              <div className="text-sm text-blue-200">Pet Parents</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold">99%</div>
-              <div className="text-sm text-blue-200">Satisfaction</div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
