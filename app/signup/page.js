@@ -1,8 +1,10 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PawPrint, Mail, Lock, User, Phone, Eye, EyeOff } from 'lucide-react';
+import { PawPrint, Mail, Lock, User, Phone, Eye, EyeOff, MapPin } from 'lucide-react';
 import Link from 'next/link';
+
+const API_URL = "http://localhost:3001";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -11,24 +13,51 @@ export default function SignupPage() {
     name: '',
     email: '',
     phone: '',
+    address: '',
     password: '',
     confirmPassword: ''
   });
+  const [profilePic, setProfilePic] = useState(null);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (formData.password !== formData.confirmPassword) {
-      alert('Passwords do not match!');
+      alert("Passwords do not match!");
       return;
     }
-    // Mock signup
-    localStorage.setItem('petpal_user', JSON.stringify({
-      name: formData.name,
-      email: formData.email,
-      phone: formData.phone,
-      id: Date.now().toString()
-    }));
-    router.push('/dashboard');
+
+    try {
+      const data = new FormData();
+      data.append("name", formData.name);
+      data.append("email", formData.email);
+      data.append("phone", formData.phone);
+      data.append("address", formData.address);
+      data.append("password", formData.password);
+      if (profilePic) data.append("profile_pic", profilePic);
+
+      const res = await fetch(`${API_URL}/signup`, {
+        method: "POST",
+        body: data
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        alert(result.message || "Signup failed");
+        return;
+      }
+
+      localStorage.setItem(
+        "petpal_user",
+        JSON.stringify({ name: result.user.name, email: result.user.email, id: result.user.user_id })
+      );
+
+      alert("Signup successful! Please login.");
+      router.push("/login");
+    } catch (err) {
+      console.error("Signup error:", err);
+      alert("Server not reachable");
+    }
   };
 
   return (
@@ -114,6 +143,31 @@ export default function SignupPage() {
                   required
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Address</label>
+              <div className="relative">
+                <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <input
+                  type="text"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  placeholder="Enter your address"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Profile Picture</label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => setProfilePic(e.target.files[0])}
+                className="w-full border border-gray-300 rounded-lg p-2"
+              />
             </div>
 
             <div>
