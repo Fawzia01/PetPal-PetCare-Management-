@@ -4,19 +4,24 @@ import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import multer from "multer";
+import path from "path";
+import { fileURLToPath } from 'url';
 import { pool } from "./db.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import Groq from "groq-sdk";
 
 dotenv.config();
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
+
 app.use(cors());
 app.use(express.json());
+// Serve uploaded files
+app.use('/upload', express.static(path.join(__dirname, '../upload')));
 
-// ---------------------------------------------
-// GEMINI CLIENT
-// ---------------------------------------------
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
@@ -64,7 +69,8 @@ Return ONLY a number.
     const raw = result.response.text().trim();
     const calories = parseFloat(raw.replace(/[^0-9.]/g, ""));
     return isNaN(calories) ? quantity * 0.5 : calories;
-  } catch {
+  } catch (err) {
+    console.error("AI Error:", err);
     return quantity * 0.5;
   }
 }
@@ -122,37 +128,40 @@ app.post("/login", async (req, res) => {
   });
 });
 
-// ---------------------------------------------
-// PET ROUTES
-// ---------------------------------------------
-app.post("/pets", authenticate, async (req, res) => {
+
+// POST - Add new pet with photo
+app.post("/pets", authenticate, upload.single("profile_pic"), async (req, res) => {
   const { name, species, breed, gender, dob, weight, med_note } = req.body;
+  const profilePic = req.file ? req.file.path : null;
 
-  const result = await pool.query(
-    `INSERT INTO pets(user_id,name,species,breed,gender,dob,weight,med_note)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [
-      req.user.user_id,
-      name,
-      species,
-      breed,
-      gender,
-      dob,
-      weight,
-      med_note,
-    ]
-  );
+  try {
+    const result = await pool.query(
+      `INSERT INTO pets(user_id,name,species,breed,gender,dob,weight,med_note,profile_pic)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [
+        req.user.user_id,
+        name,
+        species,
+        breed,
+        gender,
+        dob,
+        weight,
+        med_note,
+        profilePic  // Add profile pic here
+      ]
+    );
 
-  res.json(result.rows[0]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to add pet" });
+  }
 });
 
-// ---------------------------------------------
-// GET ALL PETS FOR A USER
-// ---------------------------------------------
+// GET - Fetch all pets for a user
 app.get("/pets/user/:userId", authenticate, async (req, res) => {
   const { userId } = req.params;
 
-  // Ensure the user is requesting their own pets
   if (Number(userId) !== req.user.user_id)
     return res.status(403).json({ message: "Forbidden" });
 
@@ -168,9 +177,7 @@ app.get("/pets/user/:userId", authenticate, async (req, res) => {
   }
 });
 
-// ---------------------------------------------
-// GET SINGLE PET BY PET ID
-// ---------------------------------------------
+// GET - Fetch single pet
 app.get("/pets/:petId", authenticate, async (req, res) => {
   const { petId } = req.params;
 
@@ -190,9 +197,7 @@ app.get("/pets/:petId", authenticate, async (req, res) => {
   }
 });
 
-// ---------------------------------------------
-// UPDATE PET INFO
-// ---------------------------------------------
+// PUT - Update pet with optional new photo
 app.put("/pets/:petId", authenticate, upload.single("profile_pic"), async (req, res) => {
   const { petId } = req.params;
   const { name, species, breed, gender, dob, weight, med_note } = req.body;
@@ -227,78 +232,100 @@ app.put("/pets/:petId", authenticate, upload.single("profile_pic"), async (req, 
 });
 
 // ---------------------------------------------
-// ADD NUTRITION
+// NUTRITION ROUTES
 // ---------------------------------------------
 app.post(
   "/nutrition",
   authenticate,
   upload.single("food_pic"),
   async (req, res) => {
-    const { p_id, food_name, quantity, date } = req.body;
+    const { pet_name, food_name, quantity, date } = req.body;
 
-    const calories = await calculateCaloriesAI(food_name, quantity);
-    const foodPic = req.file ? req.file.path : "upload/default-food.png";
+    try {
+      // Find pet for this user
+      const petResult = await pool.query(
+        `SELECT p_id FROM pets WHERE user_id = $1 AND name = $2`,
+        [req.user.user_id, pet_name]
+      );
 
-    const result = await pool.query(
-      `INSERT INTO nutrition
-       (p_id,food_name,quantity,date,calories,food_pic)
-       VALUES ($1,$2,$3,$4,$5,$6)
-       RETURNING *`,
-      [p_id, food_name, quantity, date, calories, foodPic]
-    );
+      if (!petResult.rows.length) {
+        return res.status(404).json({ message: "Pet not found" });
+      }
 
-    res.json(result.rows[0]);
+      const p_id = petResult.rows[0].p_id;
+
+      // AI calorie calculation
+      const calories = await calculateCaloriesAI(food_name, quantity);
+      const foodPic = req.file ? req.file.path : null;
+
+      // Save nutrition
+      const result = await pool.query(
+        `
+        INSERT INTO nutrition
+        (p_id, food_name, quantity, date, calories, food_pic)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        RETURNING *
+        `,
+        [p_id, food_name, quantity, date, calories, foodPic]
+      );
+
+      res.json(result.rows[0]);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to add nutrition" });
+    }
   }
 );
 
-// ---------------------------------------------
-// GET ALL NUTRITION BY USER ID
-// ---------------------------------------------
 app.get("/nutrition/user/:userId", authenticate, async (req, res) => {
   const { userId } = req.params;
 
   if (Number(userId) !== req.user.user_id)
     return res.status(403).json({ message: "Forbidden" });
 
-  const result = await pool.query(
-    `
-    SELECT n.*, p.name AS pet_name
-    FROM nutrition n
-    JOIN pets p ON n.p_id = p.p_id
-    WHERE p.user_id = $1
-    ORDER BY date DESC
-    `,
-    [userId]
-  );
+  try {
+    const result = await pool.query(
+      `
+      SELECT n.log_id, n.p_id, n.food_name, n.quantity, n.date, n.calories, n.food_pic, p.name AS pet_name
+      FROM nutrition n
+      JOIN pets p ON n.p_id = p.p_id
+      WHERE p.user_id = $1
+      ORDER BY n.date DESC
+      `,
+      [userId]
+    );
 
-  res.json(result.rows);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch nutrition" });
+  }
 });
 
-// ---------------------------------------------
-// GET SINGLE NUTRITION BY ID
-// ---------------------------------------------
 app.get("/nutrition/:id", authenticate, async (req, res) => {
   const { id } = req.params;
 
-  const result = await pool.query(
-    `
-    SELECT n.*
-    FROM nutrition n
-    JOIN pets p ON n.p_id = p.p_id
-    WHERE n.n_id = $1 AND p.user_id = $2
-    `,
-    [id, req.user.user_id]
-  );
+  try {
+    const result = await pool.query(
+      `
+      SELECT n.*, p.name AS pet_name
+      FROM nutrition n
+      JOIN pets p ON n.p_id = p.p_id
+      WHERE n.log_id = $1 AND p.user_id = $2
+      `,
+      [id, req.user.user_id]
+    );
 
-  if (!result.rows.length)
-    return res.status(404).json({ message: "Not found" });
+    if (!result.rows.length)
+      return res.status(404).json({ message: "Not found" });
 
-  res.json(result.rows[0]);
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch nutrition" });
+  }
 });
 
-// ---------------------------------------------
-// UPDATE NUTRITION
-// ---------------------------------------------
 app.put(
   "/nutrition/:id",
   authenticate,
@@ -307,63 +334,67 @@ app.put(
     const { id } = req.params;
     const { food_name, quantity, date } = req.body;
 
-    const calories = await calculateCaloriesAI(food_name, quantity);
-    const foodPic = req.file ? req.file.path : null;
+    try {
+      const calories = await calculateCaloriesAI(food_name, quantity);
+      const foodPic = req.file ? req.file.path : null;
 
-    const result = await pool.query(
-      `
-      UPDATE nutrition n
-      SET food_name=$1,
-          quantity=$2,
-          date=$3,
-          calories=$4,
-          food_pic=COALESCE($5, food_pic)
-      FROM pets p
-      WHERE n.p_id = p.p_id
-        AND n.n_id = $6
-        AND p.user_id = $7
-      RETURNING n.*
-      `,
-      [
-        food_name,
-        quantity,
-        date,
-        calories,
-        foodPic,
-        id,
-        req.user.user_id,
-      ]
-    );
+      // First verify the nutrition belongs to user's pet
+      const checkResult = await pool.query(
+        `
+        SELECT n.log_id
+        FROM nutrition n
+        JOIN pets p ON n.p_id = p.p_id
+        WHERE n.log_id = $1 AND p.user_id = $2
+        `,
+        [id, req.user.user_id]
+      );
 
-    if (!result.rows.length)
-      return res.status(404).json({ message: "Update failed" });
+      if (!checkResult.rows.length)
+        return res.status(404).json({ message: "Nutrition not found" });
 
-    res.json(result.rows[0]);
+      // Update nutrition
+      const updateQuery = foodPic
+        ? `UPDATE nutrition SET food_name=$1, quantity=$2, date=$3, calories=$4, food_pic=$5 WHERE log_id=$6 RETURNING *`
+        : `UPDATE nutrition SET food_name=$1, quantity=$2, date=$3, calories=$4 WHERE log_id=$5 RETURNING *`;
+
+      const params = foodPic
+        ? [food_name, quantity, date, calories, foodPic, id]
+        : [food_name, quantity, date, calories, id];
+
+      const result = await pool.query(updateQuery, params);
+
+      res.json(result.rows[0]);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Failed to update nutrition" });
+    }
   }
 );
 
-// ---------------------------------------------
-// DELETE NUTRITION
-// ---------------------------------------------
 app.delete("/nutrition/:id", authenticate, async (req, res) => {
   const { id } = req.params;
 
-  const result = await pool.query(
-    `
-    DELETE FROM nutrition n
-    USING pets p
-    WHERE n.p_id = p.p_id
-      AND n.n_id = $1
-      AND p.user_id = $2
-    RETURNING n.*
-    `,
-    [id, req.user.user_id]
-  );
+  try {
+    const result = await pool.query(
+      `
+      DELETE FROM nutrition n
+      USING pets p
+      WHERE n.p_id = p.p_id
+        AND n.log_id = $1
+        AND p.user_id = $2
+      RETURNING n.*
+      `,
+      [id, req.user.user_id]
+    );
 
-  if (!result.rows.length)
-    return res.status(404).json({ message: "Delete failed" });
+    if (!result.rows.length)
+      return res.status(404).json({ message: "Delete failed" });
 
-  res.json({ message: "Nutrition deleted" });
+    res.json({ message: "Nutrition deleted" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to delete nutrition" });
+  }
 });
 
 // ---------------------------------------------
@@ -372,13 +403,18 @@ app.delete("/nutrition/:id", authenticate, async (req, res) => {
 app.post("/nutrition/suggest", authenticate, async (req, res) => {
   const { food_name, quantity } = req.body;
 
-  const prompt = `
+  try {
+    const prompt = `
 Pet ate ${quantity}g of ${food_name}.
 Give a short friendly suggestion for next meal.
-  `.trim();
+    `.trim();
 
-  const result = await model.generateContent(prompt);
-  res.json({ suggestion: result.response.text() });
+    const result = await model.generateContent(prompt);
+    res.json({ suggestion: result.response.text() });
+  } catch (err) {
+    console.error("Suggestion error:", err);
+    res.status(500).json({ message: "Failed to get suggestion" });
+  }
 });
 
 // ---------------------------------------------
