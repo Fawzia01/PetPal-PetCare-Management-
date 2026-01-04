@@ -18,47 +18,72 @@ export default function AddPet() {
   });
 
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
+  const [profilePic, setProfilePic] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
 
   // Check if user is logged in
   useEffect(() => {
     const storedUser = localStorage.getItem('petpal_user');
-    if (!storedUser) {
+    const storedToken = localStorage.getItem('petpal_token');
+    
+    if (!storedUser || !storedToken) {
       router.push('/login');
       return;
     }
+    
     setUser(JSON.parse(storedUser));
+    setToken(storedToken);
   }, [router]);
 
   const handleLogout = () => {
     localStorage.removeItem('petpal_user');
+    localStorage.removeItem('petpal_token');
     router.push('/login');
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setProfilePic(file);
+      // Create preview URL
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!user || !user.token) {
+    if (!token) {
       alert('Please login first');
       router.push('/login');
       return;
     }
 
     try {
+      // Use FormData to send file + data
+      const formDataToSend = new FormData();
+      formDataToSend.append('name', formData.name);
+      formDataToSend.append('species', formData.species);
+      formDataToSend.append('breed', formData.breed);
+      formDataToSend.append('gender', formData.gender);
+      formDataToSend.append('dob', formData.dob);
+      formDataToSend.append('weight', formData.weight);
+      formDataToSend.append('med_note', formData.med_note);
+      
+      // Add file if selected
+      if (profilePic) {
+        formDataToSend.append('profile_pic', profilePic);
+      }
+
       const res = await fetch('http://localhost:3001/pets', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}` // <-- JWT token
+          'Authorization': `Bearer ${token}`
+          // Don't set Content-Type - browser will set it with boundary for multipart/form-data
         },
-        body: JSON.stringify({
-          name: formData.name,
-          species: formData.species,
-          breed: formData.breed,
-          gender: formData.gender,
-          dob: formData.dob,
-          weight: formData.weight,
-          med_note: formData.med_note
-        })
+        body: formDataToSend
       });
 
       const data = await res.json();
@@ -146,13 +171,23 @@ export default function AddPet() {
           <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-lg p-8">
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="flex flex-col items-center">
-                <div className="w-32 h-32 rounded-full flex items-center justify-center mb-4" style={{ background: 'linear-gradient(135deg, #6C4AB6, #FF4FA3)' }}>
-                  <PawPrint className="w-16 h-16 text-white" />
+                <div className="w-32 h-32 rounded-full flex items-center justify-center mb-4 overflow-hidden" style={{ background: 'linear-gradient(135deg, #6C4AB6, #FF4FA3)' }}>
+                  {previewUrl ? (
+                    <img src={previewUrl} alt="Preview" className="w-full h-full object-cover" />
+                  ) : (
+                    <PawPrint className="w-16 h-16 text-white" />
+                  )}
                 </div>
-                <button type="button" className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition flex items-center gap-2">
+                <label className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition flex items-center gap-2 cursor-pointer">
                   <Upload className="w-4 h-4" />
                   Upload Photo
-                </button>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="hidden"
+                  />
+                </label>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -228,14 +263,14 @@ export default function AddPet() {
                   />
                 </div>
 
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Medical Notes</label>
-                  <input
-                    type="text"
+                  <textarea
                     value={formData.med_note}
                     onChange={(e) => setFormData({ ...formData, med_note: e.target.value })}
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     placeholder="Optional notes"
+                    rows="3"
                   />
                 </div>
               </div>
