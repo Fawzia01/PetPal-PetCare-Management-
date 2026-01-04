@@ -39,19 +39,20 @@ export default function LoginPage() {
         return;
       }
 
-      // Save token and user info
-      localStorage.setItem(
-        'petpal_user',
-        JSON.stringify({
-          email: data.email,
-          token: data.token,
-          user_id: data.user_id
-        })
-      );
-
+      // FIXED: Save token separately
+      localStorage.setItem('petpal_token', data.token);
+      
+      // Decode JWT to get user_id (or get it from backend response)
+      const payload = JSON.parse(atob(data.token.split('.')[1]));
+      
+      // Save user info
+      localStorage.setItem('petpal_user', JSON.stringify({
+        email: formData.email,
+        user_id: payload.user_id
+      }));
 
       alert("Login successful!");
-      router.push("/dashboard"); // redirect after login
+      router.push("/dashboard");
     } catch (err) {
       console.error("Login error:", err);
       alert("Server not reachable");
