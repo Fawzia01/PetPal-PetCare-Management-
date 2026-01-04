@@ -40,11 +40,12 @@ export default function LoginPage() {
       }
 
       // Save token and user info
+      localStorage.setItem('petpal_token', data.token);
       localStorage.setItem(
         'petpal_user',
         JSON.stringify({
           email: data.email,
-          token: data.token,
+          name: data.name,
           user_id: data.user_id
         })
       );

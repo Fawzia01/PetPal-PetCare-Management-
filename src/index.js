@@ -6,6 +6,7 @@ import jwt from "jsonwebtoken";
 import multer from "multer";
 import { pool } from "./db.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk";
 
 dotenv.config();
 
@@ -113,7 +114,12 @@ app.post("/login", async (req, res) => {
     { expiresIn: "1d" }
   );
 
-  res.json({ token });
+  res.json({ 
+    token,
+    user_id: user.user_id,
+    name: user.name,
+    email: user.email
+  });
 });
 
 // ---------------------------------------------
@@ -373,6 +379,158 @@ Give a short friendly suggestion for next meal.
 
   const result = await model.generateContent(prompt);
   res.json({ suggestion: result.response.text() });
+});
+
+// ---------------------------------------------
+// GROQ API SETTINGS
+// ---------------------------------------------
+app.post("/api-settings", authenticate, async (req, res) => {
+  try {
+    const { user_id, groq_api_key, groq_model } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO user_api_settings (user_id, groq_api_key, groq_model, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id)
+       DO UPDATE SET 
+         groq_api_key = EXCLUDED.groq_api_key,
+         groq_model = EXCLUDED.groq_model,
+         updated_at = NOW()
+       RETURNING *`,
+      [user_id, groq_api_key, groq_model]
+    );
+
+    res.json({ message: "Settings saved", data: result.rows[0] });
+  } catch (error) {
+    console.error("Save settings error:", error);
+    res.status(500).json({ message: "Failed to save settings" });
+  }
+});
+
+app.get("/api-settings/:user_id", authenticate, async (req, res) => {
+  try {
+    const { user_id } = req.params;
+
+    const result = await pool.query(
+      `SELECT groq_api_key, groq_model FROM user_api_settings WHERE user_id = $1`,
+      [user_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "Settings not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Load settings error:", error);
+    res.status(500).json({ message: "Failed to load settings" });
+  }
+});
+
+// ---------------------------------------------
+// TEST GROQ API
+// ---------------------------------------------
+app.post("/test-groq-api", async (req, res) => {
+  try {
+    const { apiKey, model, prompt } = req.body;
+
+    if (!apiKey || !model || !prompt) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    const groq = new Groq({ apiKey });
+
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      model: model,
+      temperature: 0.7,
+      max_tokens: 1024
+    });
+
+    res.json({
+      success: true,
+      response: chatCompletion.choices[0]?.message?.content || "No response",
+      model: model
+    });
+  } catch (error) {
+    console.error("Groq API test error:", error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || "API test failed" 
+    });
+  }
+});
+
+// ---------------------------------------------
+// AI HEALTH ADVISOR (GROQ)
+// ---------------------------------------------
+app.post("/ai-advisor", authenticate, async (req, res) => {
+  try {
+    const { message, pet_info } = req.body;
+
+    // Get user's Groq settings
+    const settings = await pool.query(
+      `SELECT groq_api_key, groq_model FROM user_api_settings WHERE user_id = $1`,
+      [req.user.user_id]
+    );
+
+    if (settings.rows.length === 0 || !settings.rows[0].groq_api_key) {
+      return res.status(400).json({ 
+        message: "Please configure your Groq API key in settings first" 
+      });
+    }
+
+    const { groq_api_key, groq_model } = settings.rows[0];
+    const groq = new Groq({ apiKey: groq_api_key });
+
+    const systemPrompt = `You are an expert pet health advisor. Provide helpful, accurate, and caring advice about pet health, nutrition, behavior, and general care. 
+${pet_info ? `Current pet: ${pet_info.name}, ${pet_info.species}, ${pet_info.breed}, ${pet_info.age} years old.` : ''}
+
+Always be:
+- Compassionate and understanding
+- Clear and concise in your explanations
+- Safety-conscious (remind when to see a vet)
+- Evidence-based in your recommendations
+
+Format your responses with:
+- Clear headings
+- Bullet points for lists
+- Important warnings with ⚠️ or 🚨 emojis
+- Positive tips with ✅ or 💡 emojis`;
+
+    const chatCompletion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: "system",
+          content: systemPrompt
+        },
+        {
+          role: "user",
+          content: message
+        }
+      ],
+      model: groq_model || "llama-3.3-70b-versatile",
+      temperature: 0.7,
+      max_tokens: 2048
+    });
+
+    const response = chatCompletion.choices[0]?.message?.content;
+
+    res.json({ 
+      response,
+      model: groq_model
+    });
+  } catch (error) {
+    console.error("AI Advisor error:", error);
+    res.status(500).json({ 
+      message: "AI service temporarily unavailable. Please try again." 
+    });
+  }
 });
 
 // ---------------------------------------------

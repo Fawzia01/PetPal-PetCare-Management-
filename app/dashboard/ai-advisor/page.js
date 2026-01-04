@@ -83,7 +83,7 @@ export default function AIHealthAdvisor() {
     }
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!message.trim()) return;
 
     const userMessage = { role: 'user', content: message };
@@ -91,12 +91,48 @@ export default function AIHealthAdvisor() {
     setMessage('');
     setIsTyping(true);
 
-    // Simulate AI thinking time
-    setTimeout(() => {
-      const aiResponse = getAIResponse(message);
-      setChatHistory(prev => [...prev, { role: 'assistant', content: aiResponse }]);
+    try {
+      const userData = JSON.parse(localStorage.getItem('petpal_user'));
+      const token = localStorage.getItem('petpal_token');
+      
+      const response = await fetch('http://localhost:3001/ai-advisor', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          message: message,
+          pet_info: pets[0] || null
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setChatHistory(prev => [...prev, { 
+          role: 'assistant', 
+          content: data.response 
+        }]);
+      } else {
+        // Fallback to local response if API fails
+        const fallbackResponse = getAIResponse(message);
+        setChatHistory(prev => [...prev, { 
+          role: 'assistant', 
+          content: data.message || fallbackResponse
+        }]);
+      }
+    } catch (error) {
+      console.error('AI Advisor error:', error);
+      // Fallback to local response on error
+      const fallbackResponse = getAIResponse(message);
+      setChatHistory(prev => [...prev, { 
+        role: 'assistant', 
+        content: fallbackResponse
+      }]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   const handleKeyPress = (e) => {
@@ -147,6 +183,10 @@ export default function AIHealthAdvisor() {
           <Link href="/dashboard/ai-advisor" className="flex items-center gap-3 p-3 bg-white/20 rounded-lg hover:bg-white/30 transition">
             <Bot className="w-5 h-5" />
             {sidebarOpen && <span>AI Health Advisor</span>}
+          </Link>
+          <Link href="/dashboard/settings" className="flex items-center gap-3 p-3 rounded-lg hover:bg-white/20 transition">
+            <Settings className="w-5 h-5" />
+            {sidebarOpen && <span>AI Settings</span>}
           </Link>
         </nav>
 
