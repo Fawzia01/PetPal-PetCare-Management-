@@ -6,24 +6,27 @@ import Link from 'next/link';
 
 const API_URL = "http://localhost:3001";
 
-export default function LoginPage() {
+export default function AdminLoginPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     password: ''
   });
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
 
     if (!formData.email || !formData.password) {
       alert("Please enter email and password");
+      setLoading(false);
       return;
     }
 
     try {
-      const res = await fetch(`${API_URL}/login`, {
+      const res = await fetch(`${API_URL}/admin-login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -32,48 +35,40 @@ export default function LoginPage() {
         })
       });
 
-      const contentType = res.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        throw new Error('Backend API error - invalid response');
+      let data;
+      try {
+        data = await res.json();
+      } catch (parseErr) {
+        console.error("JSON parse error:", parseErr);
+        throw new Error('Backend API error - invalid response format');
       }
 
-      const data = await res.json();
-
       if (!res.ok) {
-        alert(data.message || "Login failed");
+        alert(data.message || "Admin login failed");
+        setLoading(false);
         return;
       }
 
       // Save token separately
       localStorage.setItem('petpal_token', data.token);
+      localStorage.setItem('petpal_is_admin', 'true');
 
-      // Try to get user info from backend response, fallback to JWT decode
-      let userInfo = {};
-      if (data.user_id && data.email) {
-        userInfo = {
-          email: data.email,
-          name: data.name,
-          user_id: data.user_id
-        };
-      } else {
-        // Decode JWT to get user_id (if backend doesn't send user info)
-        try {
-          const payload = JSON.parse(atob(data.token.split('.')[1]));
-          userInfo = {
-            email: formData.email,
-            user_id: payload.user_id
-          };
-        } catch (e) {
-          userInfo = { email: formData.email };
-        }
-      }
+      // Save user info from response
+      const userInfo = {
+        email: data.email || formData.email,
+        name: data.name || "Admin",
+        user_id: data.user_id || 0,
+        is_admin: true
+      };
       localStorage.setItem('petpal_user', JSON.stringify(userInfo));
 
-      alert("Login successful!");
-      router.push("/dashboard");
+      alert("Admin login successful!");
+      router.push("/admin");
     } catch (err) {
-      console.error("Login error:", err);
+      console.error("Admin login error:", err);
       alert("Server not reachable");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -87,8 +82,8 @@ export default function LoginPage() {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4" style={{background: 'linear-gradient(135deg, #6C4AB6, #FF4FA3)'}}>
               <PawPrint className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold text-gray-800">Welcome to PetPal</h1>
-            <p className="text-gray-600 mt-2">Your pet's health companion</p>
+            <h1 className="text-3xl font-bold text-gray-800">Admin Portal</h1>
+            <p className="text-gray-600 mt-2">PetPal Management</p>
           </div>
 
           {/* Login Form */}
@@ -104,6 +99,7 @@ export default function LoginPage() {
                   className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Enter your email"
                   required
+                  disabled={loading}
                 />
               </div>
             </div>
@@ -119,52 +115,34 @@ export default function LoginPage() {
                   className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="Enter your password"
                   required
+                  disabled={loading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  disabled={loading}
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
             </div>
 
-            <div className="flex items-center justify-between">
-              <label className="flex items-center">
-                <input type="checkbox" className="w-4 h-4 text-blue-600 rounded" />
-                <span className="ml-2 text-sm text-gray-600">Remember me</span>
-              </label>
-              <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-700">
-                Forgot Password?
-              </Link>
-            </div>
-
             <button
               type="submit"
-              className="w-full text-white py-3 rounded-lg font-semibold transition-all shadow-lg hover:shadow-xl"
+              disabled={loading}
+              className="w-full text-white py-3 rounded-lg font-semibold transition-all shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed"
               style={{background: 'linear-gradient(135deg, #6C4AB6, #FF4FA3)'}}
             >
-              Sign In
+              {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
 
           <p className="text-center mt-6 text-gray-600">
-            Don't have an account?{' '}
-            <Link href="/signup" className="text-blue-600 hover:text-blue-700 font-semibold">
-              Sign Up
+            <Link href="/login" className="text-blue-600 hover:text-blue-700 font-semibold">
+              Back to User Login
             </Link>
           </p>
-
-          <div className="mt-4 pt-4 border-t border-gray-300 text-center">
-            <Link 
-              href="/admin-login"
-              className="inline-block px-4 py-2 text-sm font-semibold text-white rounded-lg transition-all hover:shadow-lg"
-              style={{background: 'linear-gradient(135deg, #6C4AB6, #FF4FA3)'}}
-            >
-              Admin Portal
-            </Link>
-          </div>
         </div>
       </div>
 
@@ -173,16 +151,16 @@ export default function LoginPage() {
         <div className="text-white text-center">
           <div className="mb-8">
             <img 
-              src="https://images.unsplash.com/photo-1548199973-03cce0bbc87b?w=500&h=500&fit=crop" 
-              alt="Happy pets"
+              src="https://images.unsplash.com/photo-1552664730-d307ca884978?w=500&h=500&fit=crop" 
+              alt="Admin management"
               className="rounded-full w-64 h-64 object-cover mx-auto shadow-2xl border-8 border-white/20"
             />
           </div>
           <h2 className="text-4xl font-bold mb-4">
-            Care for Your Pets
+            Manage PetPal
           </h2>
           <p className="text-xl text-blue-100">
-            Track health, nutrition, and activities all in one place
+            Control users, pets, and platform settings
           </p>
         </div>
       </div>

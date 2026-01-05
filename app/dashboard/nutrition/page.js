@@ -17,7 +17,7 @@ export default function Nutrition() {
   const [showSuggestion, setShowSuggestion] = useState(false);
   
   const [newMeal, setNewMeal] = useState({
-    pet_name: '',
+    p_id: '',
     food_name: '',
     quantity: '',
     date: new Date().toISOString().split('T')[0],
@@ -52,7 +52,7 @@ export default function Nutrition() {
         const data = await response.json();
         setPets(data);
         if (data.length > 0) {
-          setNewMeal(prev => ({ ...prev, pet_name: data[0].name }));
+          setNewMeal(prev => ({ ...prev, p_id: data[0].p_id }));
         }
       }
     } catch (error) {
@@ -90,7 +90,7 @@ export default function Nutrition() {
 
     try {
       const formData = new FormData();
-      formData.append('pet_name', newMeal.pet_name);
+      formData.append('p_id', newMeal.p_id);
       formData.append('food_name', newMeal.food_name);
       formData.append('quantity', newMeal.quantity);
       formData.append('date', newMeal.date);
@@ -145,7 +145,7 @@ export default function Nutrition() {
         
         // Reset form
         setNewMeal({
-          pet_name: pets[0]?.name || '',
+          p_id: pets[0]?.p_id || '',
           food_name: '',
           quantity: '',
           date: new Date().toISOString().split('T')[0],
@@ -363,14 +363,14 @@ export default function Nutrition() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <select
-                    value={newMeal.pet_name}
-                    onChange={(e) => setNewMeal({ ...newMeal, pet_name: e.target.value })}
+                    value={newMeal.p_id}
+                    onChange={(e) => setNewMeal({ ...newMeal, p_id: e.target.value })}
                     className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                     required
                   >
                     <option value="">Select Pet</option>
                     {pets.map(pet => (
-                      <option key={pet.p_id} value={pet.name}>{pet.name}</option>
+                      <option key={pet.p_id} value={pet.p_id}>{pet.name}</option>
                     ))}
                   </select>
                   <input

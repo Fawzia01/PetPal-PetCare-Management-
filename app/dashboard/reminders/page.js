@@ -6,59 +6,167 @@ import Link from 'next/link';
 
 export default function Reminders() {
   const router = useRouter();
+  const [user, setUser] = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [reminders, setReminders] = useState([
-    { id: 1, pet: 'Max', type: 'Vaccination', title: 'Rabies Vaccine Due', date: '2025-12-21', time: '10:00', repeat: 'Annually', completed: false },
-    { id: 2, pet: 'Whiskers', type: 'Grooming', title: 'Fur Grooming Session', date: '2025-12-07', time: '14:00', repeat: 'Monthly', completed: false },
-    { id: 3, pet: 'Max', type: 'Medication', title: 'Heartworm Medicine', date: '2025-12-10', time: '09:00', repeat: 'Monthly', completed: false },
-    { id: 4, pet: 'Whiskers', type: 'Food', title: 'Refill Cat Food', date: '2025-12-06', time: '18:00', repeat: 'Weekly', completed: true }
-  ]);
+  const [reminders, setReminders] = useState([]);
+  const [pets, setPets] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [newReminder, setNewReminder] = useState({
-    pet: 'Max',
+    p_id: '',
     type: 'Vaccination',
     title: '',
     date: new Date().toISOString().split('T')[0],
     time: '',
-    repeat: 'Daily',
-    completed: false
+    repeat: 'Daily'
   });
-
-  const pets = [
-    { name: 'Max', species: 'Dog', image: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=80&h=80&fit=crop' },
-    { name: 'Whiskers', species: 'Cat', image: 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=80&h=80&fit=crop' }
-  ];
 
   useEffect(() => {
     const userData = localStorage.getItem('petpal_user');
-    if (!userData) {
+    const token = localStorage.getItem('petpal_token');
+    if (!userData || !token) {
       router.push('/login');
+    } else {
+      setUser(JSON.parse(userData));
+      fetchPets(JSON.parse(userData).user_id, token);
+      fetchReminders(JSON.parse(userData).user_id, token);
     }
   }, [router]);
+
+  const fetchPets = async (userId, token) => {
+    try {
+      const response = await fetch(`http://localhost:3001/pets/user/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPets(data);
+        if (data.length > 0) {
+          setNewReminder(prev => ({ ...prev, p_id: data[0].p_id }));
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching pets:', error);
+    }
+  };
+
+  const fetchReminders = async (userId, token) => {
+    try {
+      const response = await fetch(`http://localhost:3001/reminders/user/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setReminders(data);
+      }
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching reminders:', error);
+      setLoading(false);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('petpal_user');
     router.push('/login');
   };
 
-  const toggleComplete = (id) => {
-    setReminders(reminders.map(r => 
-      r.id === id ? { ...r, completed: !r.completed } : r
-    ));
+  const toggleComplete = async (id) => {
+    const token = localStorage.getItem('petpal_token');
+    try {
+      const response = await fetch(`http://localhost:3001/reminders/${id}/toggle`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        fetchReminders(user.user_id, token);
+      }
+    } catch (error) {
+      console.error('Error toggling reminder:', error);
+    }
   };
 
-  const deleteReminder = (id) => {
-    setReminders(reminders.filter(r => r.id !== id));
+  const deleteReminder = async (id) => {
+    const token = localStorage.getItem('petpal_token');
+    try {
+      const response = await fetch(`http://localhost:3001/reminders/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        fetchReminders(user.user_id, token);
+      }
+    } catch (error) {
+      console.error('Error deleting reminder:', error);
+    }
   };
 
-  const handleAddReminder = (e) => {
+  const handleAddReminder = async (e) => {
     e.preventDefault();
-    setReminders([...reminders, { ...newReminder, id: Date.now() }]);
-    setNewReminder({ pet: 'Max', type: 'Vaccination', title: '', date: new Date().toISOString().split('T')[0], time: '', repeat: 'Daily', completed: false });
-    setShowForm(false);
+    const token = localStorage.getItem('petpal_token');
+    
+    try {
+      const response = await fetch('http://localhost:3001/reminders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          p_id: newReminder.p_id,
+          type: newReminder.type,
+          title: newReminder.title,
+          date: newReminder.date,
+          time: newReminder.time,
+          repeat: newReminder.repeat
+        })
+      });
+
+      if (response.ok) {
+        fetchReminders(user.user_id, token);
+        setNewReminder({ 
+          p_id: pets.length > 0 ? pets[0].p_id : '', 
+          type: 'Vaccination', 
+          title: '', 
+          date: new Date().toISOString().split('T')[0], 
+          time: '', 
+          repeat: 'Daily'
+        });
+        setShowForm(false);
+      } else {
+        console.error('Failed to add reminder');
+      }
+    } catch (error) {
+      console.error('Error adding reminder:', error);
+    }
   };
 
   const upcomingReminders = reminders.filter(r => !r.completed);
   const completedReminders = reminders.filter(r => r.completed);
+
+  if (!user) return null;
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen">
@@ -114,8 +222,10 @@ export default function Reminders() {
           <p className="text-xs text-white/70 mb-3 uppercase tracking-wide">Your Pets</p>
           <div className="space-y-2">
             {pets.map((pet) => (
-              <div key={pet.name} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/10 transition cursor-pointer">
-                <img src={pet.image} alt={pet.name} className="w-10 h-10 rounded-full object-cover" />
+              <div key={pet.p_id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/10 transition cursor-pointer">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-300 to-pink-300 flex items-center justify-center text-white font-bold">
+                  {pet.name.charAt(0).toUpperCase()}
+                </div>
                 <div>
                   <p className="text-sm font-semibold">{pet.name}</p>
                   <p className="text-xs text-white/70">{pet.species}</p>
@@ -210,13 +320,17 @@ export default function Reminders() {
                 </label>
               </div>
               <select
-                value={newReminder.pet}
-                onChange={(e) => setNewReminder({ ...newReminder, pet: e.target.value })}
+                value={newReminder.p_id}
+                onChange={(e) => setNewReminder({ ...newReminder, p_id: e.target.value })}
                 className="px-4 py-3 border-2 border-yellow-200 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
                 required
               >
-                <option value="Max">Max</option>
-                <option value="Whiskers">Whiskers</option>
+                <option value="">Select a pet</option>
+                {pets.map(pet => (
+                  <option key={pet.p_id} value={pet.p_id}>
+                    {pet.name} ({pet.species})
+                  </option>
+                ))}
               </select>
               <select
                 value={newReminder.type}
@@ -277,9 +391,16 @@ export default function Reminders() {
         <div>
           <h3 className="text-xl font-bold text-gray-800 mb-6">Upcoming Reminders</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-            {upcomingReminders.map(reminder => (
+            {upcomingReminders.length === 0 ? (
+              <div className="col-span-3 text-center py-16 text-gray-500 bg-white rounded-xl">
+                <Bell className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                <p className="text-lg">No upcoming reminders</p>
+                <p className="text-sm mt-2">Create a reminder to never miss important pet care tasks!</p>
+              </div>
+            ) : (
+              upcomingReminders.map(reminder => (
               <div 
-                key={reminder.id} 
+                key={reminder.r_id} 
                 className={`bg-gradient-to-br rounded-xl shadow-lg overflow-hidden hover:shadow-2xl transition-all duration-300 border-2 ${
                   reminder.type === 'Vaccination' ? 'from-yellow-50 to-yellow-100 border-yellow-300 hover:border-yellow-500' :
                   reminder.type === 'Grooming' ? 'from-blue-50 to-blue-100 border-blue-300 hover:border-blue-500' :
@@ -323,13 +444,11 @@ export default function Reminders() {
                 <div className="p-5">
                   {/* Pet Info */}
                   <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-200">
-                    <img 
-                      src={reminder.pet === 'Max' ? 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=60&h=60&fit=crop' : 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=60&h=60&fit=crop'}
-                      alt={reminder.pet}
-                      className="w-14 h-14 rounded-full object-cover border-3 border-white shadow-lg"
-                    />
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-xl shadow-lg">
+                      {reminder.pet_name.charAt(0).toUpperCase()}
+                    </div>
                     <div>
-                      <p className="text-lg font-bold text-gray-800">{reminder.pet}</p>
+                      <p className="text-lg font-bold text-gray-800">{reminder.pet_name}</p>
                       <p className="text-sm text-gray-500">{reminder.type}</p>
                     </div>
                   </div>
@@ -370,14 +489,14 @@ export default function Reminders() {
                   {/* Action Buttons */}
                   <div className="flex gap-2 pt-4 border-t border-gray-200">
                     <button
-                      onClick={() => toggleComplete(reminder.id)}
+                      onClick={() => toggleComplete(reminder.r_id)}
                       className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-green-100 hover:bg-green-200 rounded-lg transition text-green-700 font-medium"
                     >
                       <Check className="w-4 h-4" />
                       Complete
                     </button>
                     <button
-                      onClick={() => deleteReminder(reminder.id)}
+                      onClick={() => deleteReminder(reminder.r_id)}
                       className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-red-100 hover:bg-red-200 rounded-lg transition text-red-700 font-medium"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -386,7 +505,8 @@ export default function Reminders() {
                   </div>
                 </div>
               </div>
-            ))}
+            ))
+            )}
           </div>
         </div>
 
@@ -396,20 +516,18 @@ export default function Reminders() {
             <h3 className="text-lg font-bold text-gray-800 mb-4">Completed</h3>
             <div className="space-y-3">
               {completedReminders.map(reminder => (
-                <div key={reminder.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg opacity-60">
+                <div key={reminder.r_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg opacity-60">
                   <div className="flex items-center gap-4 flex-1">
-                    <img 
-                      src={reminder.pet === 'Max' ? 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=50&h=50&fit=crop' : 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=50&h=50&fit=crop'}
-                      alt={reminder.pet}
-                      className="w-12 h-12 rounded-full object-cover"
-                    />
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-300 to-gray-400 flex items-center justify-center text-white font-bold">
+                      {reminder.pet_name.charAt(0).toUpperCase()}
+                    </div>
                     <div>
                       <h4 className="font-semibold text-gray-800 line-through">{reminder.title}</h4>
-                      <p className="text-sm text-gray-600">{reminder.pet} • {reminder.date}</p>
+                      <p className="text-sm text-gray-600">{reminder.pet_name} • {reminder.date}</p>
                     </div>
                   </div>
                   <button
-                    onClick={() => deleteReminder(reminder.id)}
+                    onClick={() => deleteReminder(reminder.r_id)}
                     className="p-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition"
                   >
                     <Trash2 className="w-5 h-5" />

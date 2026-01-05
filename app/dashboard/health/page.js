@@ -6,44 +6,128 @@ import Link from 'next/link';
 
 export default function HealthRecords() {
   const router = useRouter();
+  const [user, setUser] = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [records, setRecords] = useState([
-    { id: 1, pet: 'Max', type: 'Vaccination', condition: 'Rabies Vaccine', note: 'Annual booster', date: '2025-11-15', vet: 'Dr. Smith' },
-    { id: 2, pet: 'Whiskers', type: 'Checkup', condition: 'Regular Checkup', note: 'All vitals normal', date: '2025-10-20', vet: 'Dr. Johnson' },
-    { id: 3, pet: 'Max', type: 'Treatment', condition: 'Ear Infection', note: 'Prescribed antibiotics', date: '2025-09-05', vet: 'Dr. Smith' }
-  ]);
+  const [records, setRecords] = useState([]);
+  const [pets, setPets] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [newRecord, setNewRecord] = useState({
-    pet: 'Max',
+    p_id: '',
     type: 'Checkup',
     condition: '',
     note: '',
     date: new Date().toISOString().split('T')[0],
-    vet: ''
+    vet_name: ''
   });
-
-  const pets = [
-    { name: 'Max', species: 'Dog', image: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=80&h=80&fit=crop' },
-    { name: 'Whiskers', species: 'Cat', image: 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=80&h=80&fit=crop' }
-  ];
 
   useEffect(() => {
     const userData = localStorage.getItem('petpal_user');
-    if (!userData) {
+    const token = localStorage.getItem('petpal_token');
+    if (!userData || !token) {
       router.push('/login');
+    } else {
+      setUser(JSON.parse(userData));
+      fetchPets(JSON.parse(userData).user_id, token);
+      fetchHealthRecords(JSON.parse(userData).user_id, token);
     }
   }, [router]);
+
+  const fetchPets = async (userId, token) => {
+    try {
+      const response = await fetch(`http://localhost:3001/pets/user/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPets(data);
+        if (data.length > 0) {
+          setNewRecord(prev => ({ ...prev, p_id: data[0].p_id }));
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching pets:', error);
+    }
+  };
+
+  const fetchHealthRecords = async (userId, token) => {
+    try {
+      const response = await fetch(`http://localhost:3001/health/user/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setRecords(data);
+      }
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching health records:', error);
+      setLoading(false);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('petpal_user');
     router.push('/login');
   };
 
-  const handleAddRecord = (e) => {
+  const handleAddRecord = async (e) => {
     e.preventDefault();
-    setRecords([...records, { ...newRecord, id: Date.now() }]);
-    setNewRecord({ pet: 'Max', type: 'Checkup', condition: '', note: '', date: new Date().toISOString().split('T')[0], vet: '' });
-    setShowForm(false);
+    const token = localStorage.getItem('petpal_token');
+    
+    try {
+      const response = await fetch('http://localhost:3001/health', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          p_id: newRecord.p_id,
+          type: newRecord.type,
+          condition: newRecord.condition,
+          note: newRecord.note,
+          date: newRecord.date,
+          vet_name: newRecord.vet_name
+        })
+      });
+
+      if (response.ok) {
+        fetchHealthRecords(user.user_id, token);
+        setNewRecord({ 
+          p_id: pets.length > 0 ? pets[0].p_id : '', 
+          type: 'Checkup', 
+          condition: '', 
+          note: '', 
+          date: new Date().toISOString().split('T')[0], 
+          vet_name: '' 
+        });
+        setShowForm(false);
+      } else {
+        console.error('Failed to add health record');
+      }
+    } catch (error) {
+      console.error('Error adding health record:', error);
+    }
   };
+
+  if (!user) return null;
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen">
@@ -99,8 +183,10 @@ export default function HealthRecords() {
           <p className="text-xs text-white/70 mb-3 uppercase tracking-wide">Your Pets</p>
           <div className="space-y-2">
             {pets.map((pet) => (
-              <div key={pet.name} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/10 transition cursor-pointer">
-                <img src={pet.image} alt={pet.name} className="w-10 h-10 rounded-full object-cover" />
+              <div key={pet.p_id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/10 transition cursor-pointer">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-300 to-pink-300 flex items-center justify-center text-white font-bold">
+                  {pet.name.charAt(0).toUpperCase()}
+                </div>
                 <div>
                   <p className="text-sm font-semibold">{pet.name}</p>
                   <p className="text-xs text-white/70">{pet.species}</p>
@@ -164,13 +250,17 @@ export default function HealthRecords() {
                   </label>
                 </div>
                 <select
-                  value={newRecord.pet}
-                  onChange={(e) => setNewRecord({ ...newRecord, pet: e.target.value })}
+                  value={newRecord.p_id}
+                  onChange={(e) => setNewRecord({ ...newRecord, p_id: e.target.value })}
                   className="px-4 py-3 border-2 border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                   required
                 >
-                  <option value="Max">Max</option>
-                  <option value="Whiskers">Whiskers</option>
+                  <option value="">Select a pet</option>
+                  {pets.map(pet => (
+                    <option key={pet.p_id} value={pet.p_id}>
+                      {pet.name} ({pet.species})
+                    </option>
+                  ))}
                 </select>
                 <select
                   value={newRecord.type}
@@ -193,8 +283,8 @@ export default function HealthRecords() {
                 <input
                   type="text"
                   placeholder="Doctor/Veterinarian Name"
-                  value={newRecord.vet}
-                  onChange={(e) => setNewRecord({ ...newRecord, vet: e.target.value })}
+                  value={newRecord.vet_name}
+                  onChange={(e) => setNewRecord({ ...newRecord, vet_name: e.target.value })}
                   className="px-4 py-3 border-2 border-red-200 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
                   required
                 />
@@ -258,10 +348,17 @@ export default function HealthRecords() {
         {/* Records Cards */}
         <div>
           <h3 className="text-xl font-bold text-gray-800 mb-6">Medical History</h3>
+          {records.length === 0 ? (
+            <div className="text-center py-16 text-gray-500 bg-white rounded-xl">
+              <Heart className="w-16 h-16 mx-auto mb-4 opacity-30" />
+              <p className="text-lg">No health records yet</p>
+              <p className="text-sm mt-2">Start tracking your pet's medical history!</p>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {records.map((record) => (
               <div 
-                key={record.id} 
+                key={record.h_id} 
                 className={`bg-gradient-to-br rounded-xl shadow-lg overflow-hidden hover:shadow-2xl transition-all duration-300 border-2 ${
                   record.type === 'Vaccination' ? 'from-blue-50 to-blue-100 border-blue-200 hover:border-blue-400' :
                   record.type === 'Checkup' ? 'from-green-50 to-green-100 border-green-200 hover:border-green-400' :
@@ -292,6 +389,7 @@ export default function HealthRecords() {
                   </div>
                   <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4">
                     <h4 className="text-white text-xl font-bold">{record.condition}</h4>
+                    <p className="text-white/80 text-sm mt-1">{record.pet_name}</p>
                   </div>
                 </div>
 
@@ -299,14 +397,12 @@ export default function HealthRecords() {
                 <div className="p-5">
                   {/* Pet Info */}
                   <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-200">
-                    <img 
-                      src={record.pet === 'Max' ? 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=60&h=60&fit=crop' : 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=60&h=60&fit=crop'}
-                      alt={record.pet}
-                      className="w-14 h-14 rounded-full object-cover border-3 border-white shadow-lg"
-                    />
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-br from-purple-400 to-pink-400 flex items-center justify-center text-white font-bold text-xl shadow-lg">
+                      {record.pet_name.charAt(0).toUpperCase()}
+                    </div>
                     <div>
-                      <p className="text-lg font-bold text-gray-800">{record.pet}</p>
-                      <p className="text-sm text-gray-500">{record.pet === 'Max' ? 'Golden Retriever' : 'Persian Cat'}</p>
+                      <p className="text-lg font-bold text-gray-800">{record.pet_name}</p>
+                      <p className="text-sm text-gray-500">{record.species}</p>
                     </div>
                   </div>
 
@@ -324,7 +420,7 @@ export default function HealthRecords() {
                         </div>
                         <span className="text-sm text-gray-600">Doctor</span>
                       </div>
-                      <span className="text-sm font-semibold text-gray-800">{record.vet}</span>
+                      <span className="text-sm font-semibold text-gray-800">{record.vet_name}</span>
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -353,6 +449,7 @@ export default function HealthRecords() {
               </div>
             ))}
           </div>
+          )}
         </div>
         </div>
       </div>

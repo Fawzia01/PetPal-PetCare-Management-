@@ -1,19 +1,68 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Users, PawPrint, Activity, AlertCircle, TrendingUp, DollarSign } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Users, PawPrint, Activity, AlertCircle, TrendingUp, DollarSign, LogOut } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, PieChart, Pie, Cell, Legend
 } from 'recharts';
 
 export default function AdminDashboard() {
+  const router = useRouter();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [adminName, setAdminName] = useState('');
   const [stats, setStats] = useState({
-    totalUsers: 1247,
-    totalPets: 3891,
-    activeUsers: 892,
-    revenue: 15420
+    totalUsers: 0,
+    totalPets: 0,
+    activeUsers: 0,
+    revenue: 0
   });
+
+  useEffect(() => {
+    // Check if admin is logged in
+    const user = localStorage.getItem('petpal_user');
+    const isAdmin = localStorage.getItem('petpal_is_admin');
+
+    if (!isAdmin || !user) {
+      router.push('/admin-login');
+      return;
+    }
+
+    setIsAuthenticated(true);
+    const userData = JSON.parse(user);
+    setAdminName(userData.name || 'Admin');
+
+    // Fetch admin stats
+    fetchStats();
+  }, [router]);
+
+  const fetchStats = async () => {
+    try {
+      const token = localStorage.getItem('petpal_token');
+      const res = await fetch('http://localhost:3001/admin/stats', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setStats(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch stats:', err);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('petpal_token');
+    localStorage.removeItem('petpal_user');
+    localStorage.removeItem('petpal_is_admin');
+    router.push('/admin-login');
+  };
+
+  if (!isAuthenticated) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
 
   // Mock Data for Charts
   const activityData = [
@@ -68,6 +117,20 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
+      {/* Top Navigation Bar */}
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-800">Welcome, {adminName}</h2>
+        </div>
+        <button
+          onClick={handleLogout}
+          className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+        >
+          <LogOut className="w-5 h-5" />
+          Logout
+        </button>
+      </div>
+
       {/* Header Section with Image */}
       <div className="relative rounded-2xl overflow-hidden mb-8 bg-gradient-to-r from-[#6C4AB6] to-[#FF4FA3] shadow-xl">
         <div className="absolute inset-0 opacity-20">

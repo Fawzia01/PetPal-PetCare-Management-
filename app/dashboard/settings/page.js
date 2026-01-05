@@ -55,15 +55,29 @@ export default function SettingsPage() {
         }
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        if (data) {
-          setApiSettings({
-            groqApiKey: data.groq_api_key || '',
-            selectedModel: data.groq_model || 'llama-3.3-70b-versatile',
-            testPrompt: 'Hello! Can you help me with pet health advice?'
-          });
+      if (!response.ok) {
+        // If endpoint doesn't exist (404), just use default settings
+        if (response.status === 404) {
+          console.warn('API settings endpoint not available, using default settings');
+          return;
         }
+        console.error('Failed to load settings:', response.status, response.statusText);
+        return;
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.error('Invalid response content-type:', contentType);
+        return;
+      }
+      
+      const data = await response.json();
+      if (data) {
+        setApiSettings({
+          groqApiKey: data.groq_api_key || '',
+          selectedModel: data.groq_model || 'llama-3.3-70b-versatile',
+          testPrompt: 'Hello! Can you help me with pet health advice?'
+        });
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -126,6 +140,11 @@ export default function SettingsPage() {
         })
       });
 
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error(`Invalid response content-type: ${contentType}. Backend may not be running.`);
+      }
+
       const data = await response.json();
       
       if (response.ok) {
@@ -143,7 +162,7 @@ export default function SettingsPage() {
     } catch (error) {
       setTestResult({
         success: false,
-        message: error.message
+        message: error.message || 'Error connecting to API'
       });
     } finally {
       setTestingApi(false);

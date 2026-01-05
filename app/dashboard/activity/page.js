@@ -10,69 +10,168 @@ export default function ActivityLog() {
   const [user, setUser] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [activities, setActivities] = useState([
-    { id: 1, pet: 'Max', type: 'Walk', duration: 45, distance: 3.2, date: '2025-12-06', time: '07:00' },
-    { id: 2, pet: 'Whiskers', type: 'Play', duration: 30, distance: 0, date: '2025-12-06', time: '10:00' },
-    { id: 3, pet: 'Max', type: 'Run', duration: 60, distance: 5.5, date: '2025-12-05', time: '18:00' }
-  ]);
+  const [activities, setActivities] = useState([]);
+  const [pets, setPets] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [newActivity, setNewActivity] = useState({
-    pet: 'Max',
+    p_id: '',
     type: 'Walk',
     duration: '',
     distance: '',
     date: new Date().toISOString().split('T')[0],
     time: ''
   });
+  const [weeklyData, setWeeklyData] = useState([]);
 
   const activityTypes = ['Walk', 'Run', 'Play', 'Training', 'Swimming', 'Fetch'];
 
-  const weeklyData = [
-    { day: 'Mon', duration: 45 },
-    { day: 'Tue', duration: 60 },
-    { day: 'Wed', duration: 30 },
-    { day: 'Thu', duration: 75 },
-    { day: 'Fri', duration: 90 },
-    { day: 'Sat', duration: 120 },
-    { day: 'Sun', duration: 80 }
-  ];
-
-  const pets = [
-    {
-      id: 1,
-      name: 'Whiskers',
-      species: 'Cat',
-      image: 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200&h=200&fit=crop',
-    },
-    {
-      id: 2,
-      name: 'Max',
-      species: 'Dog',
-      image: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=200&h=200&fit=crop',
-    }
-  ];
-
   useEffect(() => {
     const userData = localStorage.getItem('petpal_user');
-    if (!userData) {
+    const token = localStorage.getItem('petpal_token');
+    if (!userData || !token) {
       router.push('/login');
     } else {
       setUser(JSON.parse(userData));
+      fetchPets(JSON.parse(userData).user_id, token);
+      fetchActivities(JSON.parse(userData).user_id, token);
+      fetchWeeklyStats(JSON.parse(userData).user_id, token);
     }
   }, [router]);
+
+  const fetchPets = async (userId, token) => {
+    try {
+      const response = await fetch(`http://localhost:3001/pets/user/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setPets(data);
+        if (data.length > 0) {
+          setNewActivity(prev => ({ ...prev, p_id: data[0].p_id }));
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching pets:', error);
+    }
+  };
+
+  const fetchActivities = async (userId, token) => {
+    try {
+      const response = await fetch(`http://localhost:3001/activities/user/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setActivities(data);
+      }
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching activities:', error);
+      setLoading(false);
+    }
+  };
+
+  const fetchWeeklyStats = async (userId, token) => {
+    try {
+      const response = await fetch(`http://localhost:3001/activities/stats/weekly/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        // Format data for the chart - ensure all 7 days are present
+        const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        const formattedData = daysOfWeek.map(day => {
+          const found = data.find(item => item.day === day);
+          return {
+            day: day,
+            duration: found ? parseInt(found.duration) : 0
+          };
+        });
+        setWeeklyData(formattedData);
+      }
+    } catch (error) {
+      console.error('Error fetching weekly stats:', error);
+      // Set default empty data if fetch fails
+      setWeeklyData([
+        { day: 'Mon', duration: 0 },
+        { day: 'Tue', duration: 0 },
+        { day: 'Wed', duration: 0 },
+        { day: 'Thu', duration: 0 },
+        { day: 'Fri', duration: 0 },
+        { day: 'Sat', duration: 0 },
+        { day: 'Sun', duration: 0 }
+      ]);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('petpal_user');
     router.push('/login');
   };
 
-  const handleAddActivity = (e) => {
+  const handleAddActivity = async (e) => {
     e.preventDefault();
-    setActivities([...activities, { ...newActivity, id: Date.now(), distance: parseFloat(newActivity.distance) || 0, duration: parseInt(newActivity.duration) }]);
-    setNewActivity({ pet: 'Max', type: 'Walk', duration: '', distance: '', date: new Date().toISOString().split('T')[0], time: '' });
-    setShowForm(false);
+    const token = localStorage.getItem('petpal_token');
+    
+    try {
+      const response = await fetch('http://localhost:3001/activities', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          p_id: newActivity.p_id,
+          type: newActivity.type,
+          duration: parseInt(newActivity.duration),
+          distance: parseFloat(newActivity.distance) || 0,
+          date: newActivity.date,
+          time: newActivity.time
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        fetchActivities(user.user_id, token);
+        fetchWeeklyStats(user.user_id, token);
+        setNewActivity({ 
+          p_id: pets.length > 0 ? pets[0].p_id : '', 
+          type: 'Walk', 
+          duration: '', 
+          distance: '', 
+          date: new Date().toISOString().split('T')[0], 
+          time: '' 
+        });
+        setShowForm(false);
+      } else {
+        console.error('Failed to add activity');
+      }
+    } catch (error) {
+      console.error('Error adding activity:', error);
+    }
   };
 
   if (!user) return null;
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -121,8 +220,10 @@ export default function ActivityLog() {
             <h3 className="text-xs font-semibold mb-3 text-white/70">MY PETS</h3>
             <div className="space-y-2">
               {pets.map(pet => (
-                <div key={pet.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/10">
-                  <img src={pet.image} alt={pet.name} className="w-10 h-10 rounded-full object-cover" />
+                <div key={pet.p_id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/10">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-300 to-pink-300 flex items-center justify-center text-white font-bold">
+                    {pet.name.charAt(0).toUpperCase()}
+                  </div>
                   <div className="text-left flex-1">
                     <p className="text-sm font-semibold">{pet.name}</p>
                     <p className="text-xs text-white/70">{pet.species}</p>
@@ -191,13 +292,17 @@ export default function ActivityLog() {
                 </label>
               </div>
               <select
-                value={newActivity.pet}
-                onChange={(e) => setNewActivity({ ...newActivity, pet: e.target.value })}
+                value={newActivity.p_id}
+                onChange={(e) => setNewActivity({ ...newActivity, p_id: e.target.value })}
                 className="px-4 py-3 border-2 border-purple-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
                 required
               >
-                <option value="Max">Max</option>
-                <option value="Whiskers">Whiskers</option>
+                <option value="">Select a pet</option>
+                {pets.map(pet => (
+                  <option key={pet.p_id} value={pet.p_id}>
+                    {pet.name} ({pet.species})
+                  </option>
+                ))}
               </select>
               <select
                 value={newActivity.type}
@@ -261,81 +366,92 @@ export default function ActivityLog() {
           </div>
           <div className="rounded-xl p-6 text-white shadow-lg" style={{background: 'linear-gradient(135deg, #FF4FA3, #FF69B4)'}}>
             <p className="text-white/90 text-sm">Total Duration</p>
-            <h3 className="text-3xl font-bold mt-1">{activities.reduce((sum, a) => sum + a.duration, 0)} min</h3>
+            <h3 className="text-3xl font-bold mt-1">{activities.reduce((sum, a) => sum + (a.duration || 0), 0)} min</h3>
           </div>
           <div className="rounded-xl p-6 text-white shadow-lg" style={{background: 'linear-gradient(135deg, #9C6DD6, #B794F6)'}}>
             <p className="text-white/90 text-sm">Distance Covered</p>
-            <h3 className="text-3xl font-bold mt-1">{activities.reduce((sum, a) => sum + a.distance, 0).toFixed(1)} km</h3>
+            <h3 className="text-3xl font-bold mt-1">{activities.reduce((sum, a) => sum + (parseFloat(a.distance) || 0), 0).toFixed(1)} km</h3>
           </div>
           <div className="rounded-xl p-6 text-white shadow-lg" style={{background: 'linear-gradient(135deg, #2A1A3A, #6C4AB6)'}}>
-            <p className="text-white/90 text-sm">Most Active</p>
-            <h3 className="text-3xl font-bold mt-1">Max</h3>
+            <p className="text-white/90 text-sm">Active Pets</p>
+            <h3 className="text-3xl font-bold mt-1">{pets.length}</h3>
           </div>
         </div>
 
         {/* Weekly Activity Chart */}
         <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
           <h3 className="text-xl font-bold text-gray-800 mb-6">Weekly Activity Overview</h3>
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={weeklyData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="day" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="duration" fill="url(#activityGradient)" name="Duration (minutes)" />
-              <defs>
-                <linearGradient id="activityGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#6C4AB6" stopOpacity={0.9}/>
-                  <stop offset="50%" stopColor="#9C6DD6" stopOpacity={0.8}/>
-                  <stop offset="100%" stopColor="#FF4FA3" stopOpacity={0.7}/>
-                </linearGradient>
-              </defs>
-            </BarChart>
-          </ResponsiveContainer>
+          {weeklyData.length > 0 && weeklyData.some(d => d.duration > 0) ? (
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={weeklyData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="day" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="duration" fill="url(#activityGradient)" name="Duration (minutes)" />
+                <defs>
+                  <linearGradient id="activityGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6C4AB6" stopOpacity={0.9}/>
+                    <stop offset="50%" stopColor="#9C6DD6" stopOpacity={0.8}/>
+                    <stop offset="100%" stopColor="#FF4FA3" stopOpacity={0.7}/>
+                  </linearGradient>
+                </defs>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="text-center py-16 text-gray-500">
+              <ActivityIcon className="w-16 h-16 mx-auto mb-4 opacity-30" />
+              <p className="text-lg">No activity data for this week yet</p>
+              <p className="text-sm mt-2">Start logging activities to see your weekly progress!</p>
+            </div>
+          )}
         </div>
 
         {/* Activity List */}
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h3 className="text-lg font-bold text-gray-800 mb-4">Recent Activities</h3>
-          <div className="space-y-4">
-            {activities.map(activity => (
-              <div key={activity.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                    <img 
-                      src={activity.pet === 'Max' ? 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=50&h=50&fit=crop' : 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=50&h=50&fit=crop'}
-                      alt={activity.pet}
-                      className="w-12 h-12 rounded-full object-cover"
-                    />
-                  </div>
-                  <div>
-                    <h4 className="font-semibold text-gray-800">{activity.pet} - {activity.type}</h4>
-                    <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-4 h-4" />
-                        {activity.duration} min
-                      </span>
-                      {activity.distance > 0 && (
+          {activities.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <ActivityIcon className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <p>No activities logged yet. Start tracking your pet's activities!</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {activities.map(activity => (
+                <div key={activity.a_id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                      <ActivityIcon className="w-6 h-6 text-purple-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-800">{activity.pet_name} - {activity.type}</h4>
+                      <div className="flex items-center gap-4 text-sm text-gray-600 mt-1">
                         <span className="flex items-center gap-1">
-                          <MapPin className="w-4 h-4" />
-                          {activity.distance} km
+                          <Clock className="w-4 h-4" />
+                          {activity.duration} min
                         </span>
-                      )}
-                      <span>{activity.date} at {activity.time}</span>
+                        {activity.distance > 0 && (
+                          <span className="flex items-center gap-1">
+                            <MapPin className="w-4 h-4" />
+                            {activity.distance} km
+                          </span>
+                        )}
+                        <span>{activity.date} at {activity.time}</span>
+                      </div>
                     </div>
                   </div>
+                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                    activity.type === 'Walk' ? 'bg-blue-100 text-blue-700' :
+                    activity.type === 'Run' ? 'bg-purple-100 text-purple-700' :
+                    'bg-pink-100 text-pink-700'
+                  }`}>
+                    {activity.type}
+                  </span>
                 </div>
-                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  activity.type === 'Walk' ? 'bg-blue-100 text-blue-700' :
-                  activity.type === 'Run' ? 'bg-purple-100 text-purple-700' :
-                  'bg-pink-100 text-pink-700'
-                }`}>
-                  {activity.type}
-                </span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
         </div>
       </div>

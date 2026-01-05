@@ -40,6 +40,11 @@ export default function SignupPage() {
         body: data
       });
 
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Backend API error - invalid response');
+      }
+
       const result = await res.json();
 
       if (!res.ok) {
