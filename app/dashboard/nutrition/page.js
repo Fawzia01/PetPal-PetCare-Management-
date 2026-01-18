@@ -15,6 +15,7 @@ export default function Nutrition() {
   const [loading, setLoading] = useState(false);
   const [suggestion, setSuggestion] = useState('');
   const [showSuggestion, setShowSuggestion] = useState(false);
+  const [suggestionLoading, setSuggestionLoading] = useState(false);
   
   const [newMeal, setNewMeal] = useState({
     p_id: '',
@@ -111,39 +112,16 @@ export default function Nutrition() {
 
       if (response.ok) {
         const newMealData = await response.json();
-        console.log('Meal added:', newMealData);
+        console.log('Meal added successfully:', newMealData);
         
-        // Get AI diet suggestion
-        console.log('Fetching AI suggestion...');
-        try {
-          const suggestionResponse = await fetch(`${API_BASE}/nutrition/suggest`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              food_name: newMeal.food_name,
-              quantity: newMeal.quantity
-            })
-          });
-
-          if (suggestionResponse.ok) {
-            const suggestionData = await suggestionResponse.json();
-            console.log('AI Suggestion:', suggestionData);
-            setSuggestion(suggestionData.suggestion);
-            setShowSuggestion(true);
-          } else {
-            console.error('Failed to get suggestion');
-          }
-        } catch (err) {
-          console.error('Error getting suggestion:', err);
-        }
-
-        // Refresh meals
+        // Refresh meals list
         await fetchMeals(user.user_id, token);
         
-        // Reset form
+        // Get AI diet suggestion - keep the form data for the suggestion
+        const mealFoodName = newMeal.food_name;
+        const mealQuantity = newMeal.quantity;
+        
+        // Reset form BEFORE fetching suggestion
         setNewMeal({
           p_id: pets[0]?.p_id || '',
           food_name: '',
@@ -152,7 +130,48 @@ export default function Nutrition() {
           food_pic: null
         });
         setShowForm(false);
-        alert('Meal added successfully!');
+        
+        // Now fetch the suggestion with the saved values
+        console.log('Fetching AI suggestion for:', mealFoodName, mealQuantity);
+        setSuggestionLoading(true);
+        
+        try {
+          const suggestionResponse = await fetch(`${API_BASE}/nutrition/suggest`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              food_name: mealFoodName,
+              quantity: mealQuantity
+            })
+          });
+
+          console.log('Suggestion response status:', suggestionResponse.status);
+          
+          if (suggestionResponse.ok) {
+            const suggestionData = await suggestionResponse.json();
+            console.log('AI Suggestion received:', suggestionData);
+            
+            if (suggestionData.suggestion) {
+              setSuggestion(suggestionData.suggestion);
+              setShowSuggestion(true);
+              console.log('Suggestion set successfully');
+            } else {
+              console.error('No suggestion in response:', suggestionData);
+            }
+          } else {
+            const errorText = await suggestionResponse.text();
+            console.error('Failed to get suggestion:', errorText);
+          }
+        } catch (err) {
+          console.error('Error getting suggestion:', err);
+        } finally {
+          setSuggestionLoading(false);
+        }
+
+        alert('Meal added successfully! Check for AI diet suggestion below.');
       } else {
         const errorData = await response.json();
         alert('Failed to add meal: ' + (errorData.message || 'Unknown error'));
@@ -308,8 +327,23 @@ export default function Nutrition() {
             </div>
           </div>
 
+          {/* Loading Suggestion Indicator */}
+          {suggestionLoading && (
+            <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl shadow-lg p-6 mb-8 border-2 border-purple-200">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                  <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-gray-800">AI is analyzing the meal...</h3>
+                  <p className="text-gray-600 text-sm">Generating personalized diet suggestion</p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* AI Diet Suggestion */}
-          {showSuggestion && suggestion && (
+          {showSuggestion && suggestion && !suggestionLoading && (
             <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl shadow-lg p-6 mb-8 border-2 border-purple-200 animate-fadeIn">
               <div className="flex items-start gap-4">
                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
@@ -320,7 +354,7 @@ export default function Nutrition() {
                     🤖 AI Diet Suggestion
                     <Bot className="w-5 h-5 text-purple-600" />
                   </h3>
-                  <p className="text-gray-700 leading-relaxed">{suggestion}</p>
+                  <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{suggestion}</p>
                 </div>
                 <button
                   onClick={() => setShowSuggestion(false)}
@@ -428,7 +462,7 @@ export default function Nutrition() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {meals.map((meal, index) => (
                   <div 
-                    key={meal.log_id || `meal-${index}`}
+                    key={meal.n_id || `meal-${index}`}
                     className="bg-gradient-to-br from-white to-purple-50 rounded-xl shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 border-2 border-purple-100 hover:border-purple-300"
                   >
                     {/* Food Image Header */}
@@ -485,7 +519,7 @@ export default function Nutrition() {
                       {/* Action Buttons */}
                       <div className="flex gap-2 pt-4 border-t border-purple-100">
                         <button
-                          onClick={() => handleDelete(meal.log_id)}
+                          onClick={() => handleDelete(meal.n_id)}
                           className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-red-50 hover:bg-red-100 rounded-lg transition text-red-600 font-medium"
                         >
                           <Trash2 className="w-4 h-4" />
