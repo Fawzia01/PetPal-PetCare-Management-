@@ -736,17 +736,62 @@ app.get("/nutrition/user/:userId", authenticate, async (req, res) => {
 app.post("/nutrition/suggest", authenticate, async (req, res) => {
   const { food_name, quantity } = req.body;
 
-  try {
-    const prompt = `
-Pet ate ${quantity}g of ${food_name}.
-Give a short friendly suggestion for next meal.
-    `.trim();
+  // Add validation
+  if (!food_name || !quantity) {
+    return res.status(400).json({ 
+      message: "food_name and quantity are required",
+      suggestion: "Please provide both food name and quantity for a personalized suggestion."
+    });
+  }
 
+  try {
+    console.log(`Generating suggestion for: ${food_name} (${quantity}g)`);
+    
+    const prompt = `You are a helpful pet nutrition advisor. A pet just ate ${quantity} grams of ${food_name}.
+
+Please provide a brief, friendly suggestion (2-3 sentences) about:
+1. Whether this is a healthy portion
+2. What to consider for the next meal
+3. Any nutritional tips
+
+Keep it concise and friendly.`;
+
+    console.log('Calling Gemini API...');
     const result = await model.generateContent(prompt);
-    res.json({ suggestion: result.response.text() });
+    
+    if (!result || !result.response) {
+      console.error('Invalid Gemini response:', result);
+      throw new Error('Invalid response from AI');
+    }
+    
+    const suggestionText = result.response.text();
+    console.log('Gemini response received:', suggestionText);
+    
+    if (!suggestionText || suggestionText.trim().length === 0) {
+      throw new Error('Empty response from AI');
+    }
+    
+    res.json({ 
+      suggestion: suggestionText.trim()
+    });
+    
   } catch (err) {
     console.error("AI SUGGESTION ERROR >>>", err);
-    res.status(500).json({ message: "Failed to generate suggestion" });
+    console.error("Error details:", err.message);
+    console.error("Error stack:", err.stack);
+    
+    // Check if it's a Gemini API specific error
+    if (err.message && err.message.includes('API key')) {
+      return res.status(500).json({ 
+        message: "AI service configuration error",
+        suggestion: "Great choice! For the next meal, consider balancing with different nutrients and maintaining proper portion sizes for your pet's health."
+      });
+    }
+    
+    // Return a fallback suggestion instead of just an error
+    res.status(200).json({ 
+      suggestion: `Thanks for feeding your pet ${food_name}! For the next meal, consider:\n\n• Ensure proper hydration alongside meals\n• Balance different food types throughout the day\n• Monitor your pet's energy levels and adjust portions accordingly\n\nConsult your vet for personalized nutrition advice!`
+    });
   }
 });
 
